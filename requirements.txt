@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+pydantic-settings
+sqlalchemy
+aiosqlite
+python-dotenv
+solders
+solana
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+shortuuid
+qrcode[pil]
+Pillow
