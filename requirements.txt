@@ -16,3 +16,4 @@ qrcode[pil]
 Pillow
 authlib
 itsdangerous
+base58

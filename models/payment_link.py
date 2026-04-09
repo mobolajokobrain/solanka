@@ -12,6 +12,8 @@ class PaymentLink(Base):
     amount_usdc     = Column(Float, nullable=True)   # None = open amount
     description     = Column(String, nullable=True)
     label           = Column(String, nullable=True)
-    is_active       = Column(Boolean, default=True)
-    times_used      = Column(Float, default=0)
-    created_at      = Column(DateTime, server_default=func.now())
+    is_active        = Column(Boolean, default=True)
+    times_used       = Column(Float, default=0)
+    callback_url     = Column(String, nullable=True)   # merchant webhook URL
+    webhook_secret   = Column(String, nullable=True)   # HMAC signing secret
+    created_at       = Column(DateTime, server_default=func.now())

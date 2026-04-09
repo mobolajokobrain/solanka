@@ -51,6 +51,44 @@ export async function acceptTerms() {
   return json
 }
 
+export async function generateWallet() {
+  const res = await fetch(`${API}/api/v1/wallet/generate`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Wallet generation failed')
+  return json as {
+    address: string
+    private_key: string
+    format: string
+    import_tip: string
+    warning: string
+    network: string
+  }
+}
+
+export async function saveWalletAddress(address: string) {
+  const res = await fetch(`${API}/api/v1/wallet/save-address`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ address }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Failed to save address')
+  return json
+}
+
+export async function startOnfidoKYC() {
+  const res = await fetch(`${API}/api/v1/kyc/onfido/start`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Failed to start Onfido KYC')
+  return json as { applicant_id: string; sdk_token: string; status: string }
+}
+
 export async function updateProfile(data: { display_name?: string; phone?: string; solana_wallet?: string }) {
   const res = await fetch(`${API}/api/v1/auth/me`, {
     method: 'PATCH',

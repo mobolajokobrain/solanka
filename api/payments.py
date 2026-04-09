@@ -14,6 +14,8 @@ from models.user import User
 from core.conversion import convert_usdc_to_ngn
 from core.solana import verify_transaction, USDC_MINT_ADDRESS
 from core.auth import get_current_user, get_current_user_optional
+from core.email import send_payment_received
+from core.webhooks import fire_payment_confirmed
 from utils.helpers import generate_payment_slug, generate_id
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
@@ -27,6 +29,8 @@ class CreatePaymentLinkRequest(BaseModel):
     amount_usdc: Optional[float] = None
     description: Optional[str] = None
     label: Optional[str] = None
+    callback_url: Optional[str] = None      # merchant webhook URL
+    webhook_secret: Optional[str] = None    # HMAC signing secret for webhook
 
 
 class VerifyTransactionRequest(BaseModel):
@@ -61,7 +65,9 @@ async def create_payment_link(
         merchant_wallet=merchant_wallet,
         amount_usdc=body.amount_usdc,
         description=body.description,
-        label=body.label or "Solanka Payment"
+        label=body.label or "Solanka Payment",
+        callback_url=body.callback_url,
+        webhook_secret=body.webhook_secret,
     )
     db.add(link)
     await db.commit()
@@ -182,6 +188,9 @@ async def verify_payment(
             detail=verification.get("reason", "Verification failed")
         )
 
+    amount_usdc = verification.get("usdc_received") or link.amount_usdc or 0
+    ngn_data    = await convert_usdc_to_ngn(amount_usdc)
+
     # Persist transaction
     tx = Transaction(
         id=generate_id(),
@@ -189,22 +198,56 @@ async def verify_payment(
         signature=body.signature,
         sender_wallet=body.sender_wallet,
         receiver_wallet=link.merchant_wallet,
-        amount_usdc=verification.get("usdc_received") or link.amount_usdc,
-        status=TransactionStatus.CONFIRMED
+        amount_usdc=amount_usdc,
+        amount_ngn=ngn_data["ngn_amount"],
+        status=TransactionStatus.CONFIRMED,
     )
     db.add(tx)
     link.times_used = (link.times_used or 0) + 1
     await db.commit()
+
+    # Fire notifications — non-blocking
+    import asyncio
+    if link.user_id:
+        from sqlalchemy import select as _select
+        user_r = await db.execute(_select(User).where(User.id == link.user_id))
+        merchant = user_r.scalar_one_or_none()
+        if merchant:
+            asyncio.create_task(
+                send_payment_received(
+                    merchant_email=merchant.email,
+                    merchant_name=merchant.display_name,
+                    amount_usdc=amount_usdc,
+                    ngn_amount=ngn_data["ngn_amount"],
+                    signature=body.signature,
+                    payment_label=link.label or link.slug,
+                )
+            )
+
+    if link.callback_url:
+        asyncio.create_task(
+            fire_payment_confirmed(
+                callback_url=link.callback_url,
+                payment_link_id=link.id,
+                slug=link.slug,
+                signature=body.signature,
+                amount_usdc=amount_usdc,
+                receiver_wallet=link.merchant_wallet,
+                sender_wallet=body.sender_wallet,
+                webhook_secret=link.webhook_secret,
+            )
+        )
 
     return {
         "success": True,
         "transaction_id": tx.id,
         "signature": body.signature,
         "status": "confirmed",
-        "usdc_received": verification.get("usdc_received"),
+        "usdc_received": amount_usdc,
+        "ngn_equivalent": ngn_data["ngn_amount"],
         "receiver": verification.get("receiver"),
         "slot": verification.get("slot"),
-        "block_time": verification.get("block_time")
+        "block_time": verification.get("block_time"),
     }
 
 

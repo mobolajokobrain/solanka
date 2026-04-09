@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getMe, updateProfile, submitKYC, acceptTerms } from "@/lib/api";
+import { getMe, updateProfile, submitKYC, acceptTerms, generateWallet } from "@/lib/api";
 
 type Step = "profile" | "kyc" | "terms" | "done";
 
@@ -40,12 +40,117 @@ function StepIndicator({ current }: { current: Step }) {
   );
 }
 
+// ── Wallet Reveal Modal ───────────────────────────────────
+function WalletRevealModal({
+  address, privateKey, onClose,
+}: { address: string; privateKey: string; onClose: () => void }) {
+  const [saved, setSaved] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedAddr, setCopiedAddr] = useState(false);
+
+  function copy(text: string, which: "key" | "addr") {
+    navigator.clipboard.writeText(text);
+    if (which === "key") { setCopiedKey(true); setTimeout(() => setCopiedKey(false), 2000); }
+    else { setCopiedAddr(true); setTimeout(() => setCopiedAddr(false), 2000); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="w-full max-w-md glass rounded-2xl border border-amber-500/30 shadow-2xl p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+            <span className="text-xl">⚠️</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-white">Save your private key now</h3>
+            <p className="text-xs text-white/50">This is the ONLY time it will be shown</p>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+          <p className="text-xs text-amber-400">
+            Your wallet was generated securely. The private key below is <strong>never stored</strong> on our servers. If you lose it, you lose access to your wallet permanently.
+          </p>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-white/50">Wallet Address (public)</label>
+            <button onClick={() => copy(address, "addr")} className="text-xs text-sol-mint hover:underline">
+              {copiedAddr ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <div className="font-mono text-xs bg-black/40 border border-white/10 rounded-xl p-3 text-white/70 break-all">
+            {address}
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-white/50">Private Key — copy to Phantom</label>
+            <button onClick={() => copy(privateKey, "key")} className="text-xs text-sol-mint hover:underline">
+              {copiedKey ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <div className="font-mono text-xs bg-black/60 border border-amber-500/30 rounded-xl p-3 text-amber-200 break-all select-all">
+            {privateKey}
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+          <p className="text-xs text-white/60 font-medium mb-1">How to import into Phantom:</p>
+          <ol className="text-xs text-white/40 space-y-0.5 list-decimal list-inside">
+            <li>Open Phantom wallet → hamburger menu (☰)</li>
+            <li>Add / Connect Wallet → Import Private Key</li>
+            <li>Paste the key above and confirm</li>
+          </ol>
+        </div>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <div
+            onClick={() => setSaved(!saved)}
+            className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${saved ? "bg-sol-mint border-sol-mint" : "border-white/20"}`}
+          >
+            {saved && <span className="text-black text-xs font-bold">✓</span>}
+          </div>
+          <span className="text-sm text-white/70">I have saved my private key in a safe place</span>
+        </label>
+
+        <button
+          onClick={onClose}
+          disabled={!saved}
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-sol-purple to-sol-mint text-white font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+        >
+          Continue →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Step 1: Profile ───────────────────────────────────────
 function ProfileStep({ onNext }: { onNext: () => void }) {
   const [phone, setPhone] = useState("");
   const [wallet, setWallet] = useState("");
+  const [walletMode, setWalletMode] = useState<"existing" | "generate" | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generatedWallet, setGeneratedWallet] = useState<{ address: string; privateKey: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setError("");
+    try {
+      const data = await generateWallet();
+      setGeneratedWallet({ address: data.address, privateKey: data.private_key });
+      setWallet(data.address);
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message || "Wallet generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,62 +168,105 @@ function ProfileStep({ onNext }: { onNext: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-5">
-      <div className="text-center mb-6">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sol-purple/20 to-sol-mint/20 border border-sol-purple/20 flex items-center justify-center mx-auto mb-4">
-          <span className="text-2xl">👤</span>
-        </div>
-        <h2 className="text-xl font-bold text-white">Complete your profile</h2>
-        <p className="text-white/50 text-sm mt-1">Required for your Solanka merchant account</p>
-      </div>
-
-      {error && (
-        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+    <>
+      {generatedWallet && (
+        <WalletRevealModal
+          address={generatedWallet.address}
+          privateKey={generatedWallet.privateKey}
+          onClose={() => setGeneratedWallet(null)}
+        />
       )}
 
-      <div>
-        <label className="block text-sm font-medium text-white/70 mb-1.5">Phone Number *</label>
-        <input
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          required
-          placeholder="+234 801 234 5678"
-          className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-sol-purple/60 transition-all"
-        />
-        <p className="text-xs text-white/30 mt-1">Used for account recovery and payment notifications</p>
-      </div>
+      <form onSubmit={submit} className="space-y-5">
+        <div className="text-center mb-6">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sol-purple/20 to-sol-mint/20 border border-sol-purple/20 flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">👤</span>
+          </div>
+          <h2 className="text-xl font-bold text-white">Complete your profile</h2>
+          <p className="text-white/50 text-sm mt-1">Required for your Solanka merchant account</p>
+        </div>
 
-      <div>
-        <label className="block text-sm font-medium text-white/70 mb-1.5">
-          Solana Wallet <span className="text-white/30 font-normal">(optional)</span>
-        </label>
-        <input
-          type="text"
-          value={wallet}
-          onChange={(e) => setWallet(e.target.value)}
-          placeholder="Your Solana wallet address"
-          className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-sol-purple/60 transition-all font-mono text-sm"
-        />
-        <p className="text-xs text-white/30 mt-1">Funds go here. You can add this later in settings.</p>
-      </div>
+        {error && (
+          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+        )}
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full py-3 rounded-xl bg-gradient-to-r from-sol-purple to-sol-mint text-white font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-      >
-        {loading ? (
-          <>
-            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Saving…
-          </>
-        ) : "Save & Continue →"}
-      </button>
-    </form>
+        <div>
+          <label className="block text-sm font-medium text-white/70 mb-1.5">Phone Number *</label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+            placeholder="+234 801 234 5678"
+            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-sol-purple/60 transition-all"
+          />
+          <p className="text-xs text-white/30 mt-1">Used for account recovery and payment notifications</p>
+        </div>
+
+        {/* Wallet section */}
+        <div>
+          <label className="block text-sm font-medium text-white/70 mb-2">Solana Wallet</label>
+
+          {!walletMode && (
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setWalletMode("existing")}
+                className="py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white/70 text-sm font-medium hover:border-sol-purple/40 hover:text-white transition-all text-left">
+                <div className="text-base mb-1">🦋</div>
+                <div className="font-semibold">I have Phantom</div>
+                <div className="text-xs text-white/40 mt-0.5">Paste my wallet address</div>
+              </button>
+              <button type="button" onClick={handleGenerate} disabled={generating}
+                className="py-3 px-4 rounded-xl bg-sol-purple/10 border border-sol-purple/30 text-white/70 text-sm font-medium hover:border-sol-purple/60 hover:text-white transition-all text-left disabled:opacity-50">
+                <div className="text-base mb-1">{generating ? "⏳" : "✨"}</div>
+                <div className="font-semibold">{generating ? "Generating…" : "Generate for me"}</div>
+                <div className="text-xs text-white/40 mt-0.5">Create a new wallet</div>
+              </button>
+            </div>
+          )}
+
+          {walletMode === "existing" && (
+            <div>
+              <input
+                type="text"
+                value={wallet}
+                onChange={(e) => setWallet(e.target.value)}
+                placeholder="Your Solana wallet address"
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-sol-purple/60 transition-all font-mono text-sm"
+              />
+              <button type="button" onClick={() => setWalletMode(null)}
+                className="text-xs text-white/30 hover:text-white/60 mt-1">← Back</button>
+            </div>
+          )}
+
+          {walletMode === null && wallet && (
+            <div className="mt-2 p-3 rounded-xl bg-sol-mint/10 border border-sol-mint/20 flex items-center gap-2">
+              <span className="text-sol-mint text-sm">✓</span>
+              <span className="font-mono text-xs text-white/70 truncate">{wallet}</span>
+            </div>
+          )}
+
+          <p className="text-xs text-white/30 mt-2">
+            You can skip this and add a wallet later in settings.
+          </p>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-sol-purple to-sol-mint text-white font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Saving…
+            </>
+          ) : "Save & Continue →"}
+        </button>
+      </form>
+    </>
   );
 }
 

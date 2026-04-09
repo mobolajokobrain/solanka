@@ -85,6 +85,11 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.refresh(user)
 
     token = create_access_token(user.id, user.email)
+
+    import asyncio
+    from core.email import send_welcome
+    asyncio.create_task(send_welcome(user.email, user.display_name))
+
     return {
         "token": token,
         "token_type": "bearer",

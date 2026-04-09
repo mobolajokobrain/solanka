@@ -1,12 +1,10 @@
 """
-KYC verification via Dojah (Nigerian-focused: BVN + NIN).
+KYC verification:
+  Tier 1 — Dojah BVN/NIN (Nigerian database lookup, instant)
+  Tier 2 — Onfido document + selfie liveness (unlimited volume)
 
-Dojah docs: https://docs.dojah.io
-Sign up at https://dojah.io for a free sandbox account.
-
-Required env vars:
-  DOJAH_APP_ID      — your Dojah App ID
-  DOJAH_SECRET_KEY  — your Dojah secret key
+Dojah:  https://dojah.io        — DOJAH_APP_ID, DOJAH_SECRET_KEY
+Onfido: https://onfido.com      — ONFIDO_API_TOKEN, ONFIDO_REGION (EU|US|CA)
 """
 import os
 import httpx
@@ -18,8 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.database import get_db
 from models.user import User
 from core.auth import get_current_user
+from core.email import send_kyc_verified
 
 router = APIRouter(prefix="/kyc", tags=["KYC"])
+
+# Onfido
+ONFIDO_TOKEN  = os.getenv("ONFIDO_API_TOKEN", "")
+ONFIDO_REGION = os.getenv("ONFIDO_REGION", "EU").upper()
+_ONFIDO_BASES = {"EU": "https://api.eu.onfido.com/v3.6", "US": "https://api.us.onfido.com/v3.6", "CA": "https://api.ca.onfido.com/v3.6"}
+ONFIDO_BASE   = _ONFIDO_BASES.get(ONFIDO_REGION, _ONFIDO_BASES["EU"])
 
 DOJAH_BASE     = "https://api.dojah.io"
 DOJAH_APP_ID   = os.getenv("DOJAH_APP_ID", "")
@@ -148,6 +153,12 @@ async def submit_kyc(
     db.add(current_user)
     await db.commit()
 
+    # Fire welcome / KYC confirmed email
+    import asyncio
+    asyncio.create_task(
+        send_kyc_verified(current_user.email, current_user.display_name, body.kyc_type)
+    )
+
     return {
         "status": "verified",
         "kyc_type": body.kyc_type,
@@ -219,3 +230,100 @@ async def complete_onboarding(
     db.add(current_user)
     await db.commit()
     return {"is_onboarded": True}
+
+
+# ── Onfido Tier-2 KYC ─────────────────────────────────────
+@router.post("/onfido/start")
+async def start_onfido_kyc(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create an Onfido applicant + SDK token for the authenticated user.
+    The frontend uses the SDK token to launch the Onfido Web SDK.
+    Results arrive via the /webhooks/onfido endpoint.
+    """
+    if not ONFIDO_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="Onfido is not configured. Set ONFIDO_API_TOKEN in environment."
+        )
+
+    if current_user.kyc_status in ("verified_tier2",):
+        return {"status": "already_verified_tier2"}
+
+    headers = {
+        "Authorization": f"Token token={ONFIDO_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Step 1 — create applicant
+        applicant_r = await client.post(
+            f"{ONFIDO_BASE}/applicants",
+            headers=headers,
+            json={
+                "first_name": current_user.display_name.split()[0],
+                "last_name":  " ".join(current_user.display_name.split()[1:]) or current_user.display_name,
+                "email":      current_user.email,
+            },
+        )
+        if applicant_r.status_code not in (200, 201):
+            raise HTTPException(status_code=502, detail=f"Onfido applicant error: {applicant_r.text}")
+
+        applicant_id = applicant_r.json()["id"]
+
+        # Step 2 — generate SDK token
+        sdk_r = await client.post(
+            f"{ONFIDO_BASE}/sdk_token",
+            headers=headers,
+            json={
+                "applicant_id":   applicant_id,
+                "referrer":       "*",
+            },
+        )
+        if sdk_r.status_code not in (200, 201):
+            raise HTTPException(status_code=502, detail=f"Onfido SDK token error: {sdk_r.text}")
+
+    sdk_token = sdk_r.json()["token"]
+
+    # Persist applicant ID so the webhook can match back to this user
+    current_user.kyc_provider_ref = applicant_id
+    db.add(current_user)
+    await db.commit()
+
+    return {
+        "applicant_id": applicant_id,
+        "sdk_token":    sdk_token,
+        "status":       "pending",
+        "message":      "Use the sdk_token to initialise the Onfido Web SDK in your frontend.",
+    }
+
+
+@router.get("/onfido/status")
+async def onfido_check_status(current_user: User = Depends(get_current_user)):
+    """Poll Onfido check status (fallback — prefer the webhook)."""
+    if not ONFIDO_TOKEN or not current_user.kyc_provider_ref:
+        return {"status": current_user.kyc_status}
+
+    headers = {"Authorization": f"Token token={ONFIDO_TOKEN}"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"{ONFIDO_BASE}/checks",
+            headers=headers,
+            params={"applicant_id": current_user.kyc_provider_ref},
+        )
+
+    if r.status_code != 200:
+        return {"status": current_user.kyc_status}
+
+    checks = r.json().get("checks", [])
+    if not checks:
+        return {"status": "pending"}
+
+    latest = checks[0]
+    return {
+        "status":   latest.get("status"),
+        "result":   latest.get("result"),
+        "check_id": latest.get("id"),
+    }

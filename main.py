@@ -13,6 +13,7 @@ from api.kyc import router as kyc_router
 from api.payments import router as payments_router
 from api.wallet import router as wallet_router
 from api.rates import router as rates_router
+from api.webhooks import router as webhooks_router
 
 load_dotenv()
 
@@ -57,6 +58,7 @@ app.include_router(kyc_router,      prefix="/api/v1")
 app.include_router(payments_router, prefix="/api/v1")
 app.include_router(wallet_router,   prefix="/api/v1")
 app.include_router(rates_router,    prefix="/api/v1")
+app.include_router(webhooks_router, prefix="/api/v1")
 
 @app.get("/pay/{slug}")
 async def checkout_page(slug: str):
