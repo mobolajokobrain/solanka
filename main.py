@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
@@ -36,10 +38,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Register routers
 app.include_router(payments_router, prefix="/api/v1")
 app.include_router(wallet_router,   prefix="/api/v1")
 app.include_router(rates_router,    prefix="/api/v1")
+
+@app.get("/pay/{slug}")
+async def checkout_page(slug: str):
+    """Serve the checkout page for a payment link."""
+    return FileResponse("static/checkout.html")
 
 @app.get("/")
 async def root():

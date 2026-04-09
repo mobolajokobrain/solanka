@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solanka Pay</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .sol-gradient { background: linear-gradient(135deg, #9945FF 0%, #14F195 100%); }
+    .sol-border { border-image: linear-gradient(135deg, #9945FF, #14F195) 1; }
+    .pulse-ring {
+      animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(153, 69, 255, 0.5); }
+      70% { transform: scale(1); box-shadow: 0 0 0 12px rgba(153, 69, 255, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(153, 69, 255, 0); }
+    }
+    .fade-in { animation: fadeIn 0.4s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4">
+
+  <!-- Loading -->
+  <div id="screen-loading" class="text-center fade-in">
+    <div class="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+    <p class="text-gray-400 text-sm">Loading payment...</p>
+  </div>
+
+  <!-- Error -->
+  <div id="screen-error" class="hidden text-center max-w-sm fade-in">
+    <div class="text-5xl mb-4">⚠️</div>
+    <h2 class="text-xl font-semibold mb-2">Payment link not found</h2>
+    <p id="error-msg" class="text-gray-400 text-sm">This link may have expired or is invalid.</p>
+  </div>
+
+  <!-- Payment Card -->
+  <div id="screen-pay" class="hidden w-full max-w-md fade-in">
+    <div class="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-2xl">
+
+      <!-- Header -->
+      <div class="sol-gradient p-px">
+        <div class="bg-gray-900 rounded-t-2xl px-6 pt-6 pb-4">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 sol-gradient rounded-full flex items-center justify-center text-sm font-bold">S</div>
+              <span class="font-semibold text-sm tracking-wide">SOLANKA</span>
+            </div>
+            <span class="text-xs bg-green-500/10 text-green-400 border border-green-500/20 px-2 py-1 rounded-full">● Live</span>
+          </div>
+          <p id="pay-label" class="text-lg font-semibold text-white truncate"></p>
+          <p id="pay-description" class="text-gray-400 text-sm mt-1 truncate"></p>
+        </div>
+      </div>
+
+      <div class="px-6 py-5 space-y-5">
+
+        <!-- Amount -->
+        <div class="bg-gray-800/50 rounded-xl p-4 text-center">
+          <p id="pay-usdc" class="text-3xl font-bold text-white"></p>
+          <p id="pay-ngn" class="text-green-400 text-sm mt-1 font-medium"></p>
+          <p id="pay-open" class="hidden text-gray-400 text-sm mt-1">Open amount — send any amount</p>
+        </div>
+
+        <!-- QR Code -->
+        <div class="flex flex-col items-center gap-3">
+          <p class="text-xs text-gray-500 uppercase tracking-widest">Scan with Phantom / Solflare</p>
+          <div class="bg-white p-3 rounded-xl inline-block">
+            <img id="qr-image" src="" alt="Solana Pay QR" class="w-52 h-52 object-contain" />
+          </div>
+          <a id="qr-open-link" href="#" target="_blank"
+             class="text-xs text-purple-400 hover:text-purple-300 underline underline-offset-2">
+            Open in wallet app →
+          </a>
+        </div>
+
+        <!-- Wallet -->
+        <div class="bg-gray-800/50 rounded-xl p-3 flex items-center gap-3">
+          <div class="w-8 h-8 sol-gradient rounded-full flex-shrink-0"></div>
+          <div class="min-w-0">
+            <p class="text-xs text-gray-500">Receiving wallet</p>
+            <p id="pay-wallet" class="text-xs text-gray-300 font-mono truncate"></p>
+          </div>
+        </div>
+
+        <!-- I've Paid button -->
+        <button id="btn-paid"
+          class="w-full py-3 rounded-xl font-semibold text-sm bg-purple-600 hover:bg-purple-500 transition-colors">
+          I've sent the payment →
+        </button>
+      </div>
+    </div>
+
+    <p class="text-center text-xs text-gray-600 mt-4">
+      Powered by <span class="text-purple-400">Solanka</span> · Solana · USDC
+    </p>
+  </div>
+
+  <!-- Verify Screen -->
+  <div id="screen-verify" class="hidden w-full max-w-md fade-in">
+    <div class="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden shadow-2xl px-6 py-8 space-y-5">
+      <div class="text-center">
+        <div class="text-4xl mb-2">🔍</div>
+        <h2 class="text-lg font-semibold">Confirm your payment</h2>
+        <p class="text-gray-400 text-sm mt-1">Paste your Solana transaction signature below</p>
+      </div>
+
+      <div>
+        <label class="text-xs text-gray-500 uppercase tracking-widest mb-2 block">Transaction Signature</label>
+        <input id="sig-input" type="text"
+          placeholder="5Kj3xYm..."
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-colors" />
+      </div>
+
+      <div id="verify-error" class="hidden bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-red-400 text-sm"></div>
+
+      <div class="flex gap-3">
+        <button id="btn-back"
+          class="flex-1 py-3 rounded-xl font-semibold text-sm bg-gray-800 hover:bg-gray-700 transition-colors">
+          ← Back
+        </button>
+        <button id="btn-verify"
+          class="flex-1 py-3 rounded-xl font-semibold text-sm bg-purple-600 hover:bg-purple-500 transition-colors">
+          Verify →
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success Screen -->
+  <div id="screen-success" class="hidden w-full max-w-md text-center fade-in">
+    <div class="bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl px-6 py-10 space-y-4">
+      <div class="w-20 h-20 bg-green-500/10 border-2 border-green-500/30 rounded-full flex items-center justify-center mx-auto pulse-ring">
+        <span class="text-4xl">✓</span>
+      </div>
+      <h2 class="text-2xl font-bold text-white">Payment confirmed!</h2>
+      <p id="success-amount" class="text-green-400 font-semibold text-lg"></p>
+      <p class="text-gray-400 text-sm">Transaction verified on Solana</p>
+
+      <div class="bg-gray-800/50 rounded-xl p-4 text-left space-y-2 text-xs font-mono">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Signature</span>
+          <span id="success-sig" class="text-gray-300 truncate max-w-[180px]"></span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">USDC received</span>
+          <span id="success-usdc" class="text-white"></span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">Status</span>
+          <span class="text-green-400">Confirmed ✓</span>
+        </div>
+      </div>
+
+      <button onclick="window.location.reload()"
+        class="w-full py-3 rounded-xl text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-colors">
+        New payment
+      </button>
+    </div>
+    <p class="text-center text-xs text-gray-600 mt-4">
+      Powered by <span class="text-purple-400">Solanka</span> · Solana · USDC
+    </p>
+  </div>
+
+<script>
+  const API = '';  // same origin
+  let linkData = null;
+
+  // ── Screens ──────────────────────────────────────────────
+  function show(id) {
+    ['loading','error','pay','verify','success'].forEach(s => {
+      document.getElementById(`screen-${s}`).classList.add('hidden');
+    });
+    document.getElementById(`screen-${id}`).classList.remove('hidden');
+  }
+
+  // ── Extract slug from URL ─────────────────────────────────
+  // Supports /pay/SLUG or ?slug=SLUG
+  function getSlug() {
+    const path = window.location.pathname;
+    const match = path.match(/\/pay\/([^/?]+)/);
+    if (match) return match[1];
+    return new URLSearchParams(window.location.search).get('slug');
+  }
+
+  // ── Load payment link ────────────────────────────────────
+  async function loadLink(slug) {
+    try {
+      const res = await fetch(`${API}/api/v1/payments/link/${slug}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Payment link not found');
+      }
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  // ── Render payment screen ────────────────────────────────
+  function renderPay(data) {
+    linkData = data;
+
+    document.getElementById('pay-label').textContent = data.label || 'Payment Request';
+    document.getElementById('pay-description').textContent = data.description || '';
+    document.getElementById('pay-wallet').textContent = data.merchant_wallet;
+
+    if (data.amount_usdc) {
+      document.getElementById('pay-usdc').textContent = `${data.amount_usdc} USDC`;
+      const ngn = data.ngn_equivalent?.ngn_amount;
+      document.getElementById('pay-ngn').textContent = ngn
+        ? `≈ ₦${Number(ngn).toLocaleString('en-NG', {minimumFractionDigits: 2})}`
+        : '';
+    } else {
+      document.getElementById('pay-usdc').textContent = 'Any amount';
+      document.getElementById('pay-open').classList.remove('hidden');
+      document.getElementById('pay-ngn').classList.add('hidden');
+    }
+
+    // QR code
+    const qrImg = document.getElementById('qr-image');
+    qrImg.src = `${API}/api/v1/payments/link/${data.slug}/qr`;
+
+    // Solana Pay deep link
+    const link = document.getElementById('qr-open-link');
+    link.href = data.solana_pay_url;
+
+    show('pay');
+  }
+
+  // ── Verify payment ───────────────────────────────────────
+  async function verifyPayment(signature) {
+    const res = await fetch(`${API}/api/v1/payments/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        signature,
+        payment_link_id: linkData.id,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Verification failed');
+    return data;
+  }
+
+  // ── Event listeners ──────────────────────────────────────
+  document.getElementById('btn-paid').addEventListener('click', () => show('verify'));
+  document.getElementById('btn-back').addEventListener('click', () => show('pay'));
+
+  document.getElementById('btn-verify').addEventListener('click', async () => {
+    const sig = document.getElementById('sig-input').value.trim();
+    const errEl = document.getElementById('verify-error');
+    errEl.classList.add('hidden');
+
+    if (!sig) {
+      errEl.textContent = 'Please paste your transaction signature.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const btn = document.getElementById('btn-verify');
+    btn.textContent = 'Verifying...';
+    btn.disabled = true;
+
+    try {
+      const result = await verifyPayment(sig);
+      // Success
+      document.getElementById('success-sig').textContent = sig;
+      document.getElementById('success-usdc').textContent =
+        `${result.usdc_received ?? linkData.amount_usdc ?? '—'} USDC`;
+      document.getElementById('success-amount').textContent =
+        result.usdc_received ? `${result.usdc_received} USDC received` : 'Payment confirmed';
+      show('success');
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.classList.remove('hidden');
+      btn.textContent = 'Verify →';
+      btn.disabled = false;
+    }
+  });
+
+  // ── Init ─────────────────────────────────────────────────
+  (async () => {
+    const slug = getSlug();
+    if (!slug) {
+      document.getElementById('error-msg').textContent = 'No payment link specified.';
+      show('error');
+      return;
+    }
+    try {
+      const data = await loadLink(slug);
+      renderPay(data);
+    } catch (e) {
+      document.getElementById('error-msg').textContent = e.message;
+      show('error');
+    }
+  })();
+</script>
+</body>
+</html>
