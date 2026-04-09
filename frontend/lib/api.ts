@@ -18,6 +18,50 @@ export function logout() {
   localStorage.removeItem('solanka_user')
 }
 
+/** Redirect browser to backend Google OAuth initiation */
+export function loginWithGoogle() {
+  window.location.href = `${API}/api/v1/auth/google`
+}
+
+// ── KYC & Onboarding ─────────────────────────────────────
+export async function submitKYC(kyc_type: 'bvn' | 'nin', value: string) {
+  const res = await fetch(`${API}/api/v1/kyc/verify`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ kyc_type, value }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'KYC verification failed')
+  return json
+}
+
+export async function getKYCStatus() {
+  const res = await fetch(`${API}/api/v1/kyc/status`, { headers: authHeaders() })
+  return res.json()
+}
+
+export async function acceptTerms() {
+  const res = await fetch(`${API}/api/v1/kyc/accept-terms`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ accepted: true }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Failed to accept terms')
+  return json
+}
+
+export async function updateProfile(data: { display_name?: string; phone?: string; solana_wallet?: string }) {
+  const res = await fetch(`${API}/api/v1/auth/me`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Profile update failed')
+  return json
+}
+
 // ── Auth endpoints ───────────────────────────────────────
 export async function login(email: string, password: string) {
   const res = await fetch(`${API}/api/v1/auth/login`, {

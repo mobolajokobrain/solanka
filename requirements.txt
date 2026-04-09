@@ -14,3 +14,5 @@ python-multipart
 shortuuid
 qrcode[pil]
 Pillow
+authlib
+itsdangerous

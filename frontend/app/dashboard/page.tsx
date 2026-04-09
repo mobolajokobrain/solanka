@@ -285,9 +285,12 @@ export default function Dashboard() {
       .then(u => {
         setUser(u)
         localStorage.setItem('solanka_user', JSON.stringify(u))
+        // Gate: redirect to onboarding if not completed
+        if (!u.is_onboarded) {
+          router.replace('/onboarding')
+        }
       })
       .catch(() => {
-        // Token invalid — clear and redirect
         logout()
         router.replace('/auth/login')
       })
