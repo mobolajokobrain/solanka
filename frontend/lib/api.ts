@@ -1,5 +1,78 @@
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://solanka-production.up.railway.app'
 
+// ── Token helpers ────────────────────────────────────────
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem('solanka_token')
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken()
+  return token
+    ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+    : { 'Content-Type': 'application/json' }
+}
+
+export function logout() {
+  localStorage.removeItem('solanka_token')
+  localStorage.removeItem('solanka_user')
+}
+
+// ── Auth endpoints ───────────────────────────────────────
+export async function login(email: string, password: string) {
+  const res = await fetch(`${API}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Login failed')
+  return json as { token: string; token_type: string; user: SolankaUser }
+}
+
+export async function register(
+  email: string,
+  password: string,
+  display_name: string,
+  solana_wallet?: string,
+) {
+  const res = await fetch(`${API}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, display_name, solana_wallet }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Registration failed')
+  return json as { token: string; token_type: string; user: SolankaUser }
+}
+
+export async function getMe(): Promise<SolankaUser> {
+  const res = await fetch(`${API}/api/v1/auth/me`, { headers: authHeaders() })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.detail || 'Unauthorized')
+  return json
+}
+
+// ── Types ────────────────────────────────────────────────
+export interface SolankaUser {
+  id: string
+  email: string
+  display_name: string
+  solana_wallet: string | null
+  api_key: string
+  is_active: boolean
+  created_at: string
+}
+
+export async function getMyLinks() {
+  const res = await fetch(`${API}/api/v1/payments/links`, { headers: authHeaders() })
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('unauthorized')
+    throw new Error('Failed to load links')
+  }
+  return res.json()
+}
+
 export async function getPaymentLink(slug: string) {
   const res = await fetch(`${API}/api/v1/payments/link/${slug}`)
   if (!res.ok) {
@@ -17,7 +90,7 @@ export async function createPaymentLink(data: {
 }) {
   const res = await fetch(`${API}/api/v1/payments/link`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(data),
   })
   if (!res.ok) {
@@ -46,7 +119,7 @@ export async function getTransactions(wallet?: string) {
   const url = wallet
     ? `${API}/api/v1/payments/transactions?wallet=${wallet}`
     : `${API}/api/v1/payments/transactions`
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: authHeaders() })
   return res.json()
 }
 

@@ -1,17 +1,30 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { createPaymentLink, getTransactions, getNGNRate, formatNGN, shortenAddress, getQRUrl } from '@/lib/api'
+import { useRouter } from 'next/navigation'
+import {
+  createPaymentLink,
+  getTransactions,
+  getNGNRate,
+  getMyLinks,
+  getMe,
+  logout,
+  formatNGN,
+  shortenAddress,
+  getQRUrl,
+  type SolankaUser,
+} from '@/lib/api'
 
 // ── Sidebar ───────────────────────────────────────────────
-function Sidebar({ active }: { active: string }) {
+function Sidebar({ user, onLogout }: { user: SolankaUser | null; onLogout: () => void }) {
   const nav = [
     { icon: '◈', label: 'Overview', href: '/dashboard' },
     { icon: '🔗', label: 'Payment Links', href: '/dashboard' },
     { icon: '📊', label: 'Transactions', href: '/dashboard' },
-    { icon: '💰', label: 'Wallet', href: '/dashboard' },
     { icon: '⚙', label: 'Settings', href: '/dashboard' },
   ]
+  const initials = user ? user.display_name.slice(0, 2).toUpperCase() : '??'
+
   return (
     <aside className="w-64 flex-shrink-0 border-r border-sol-border h-screen sticky top-0 flex flex-col bg-sol-dark/80 backdrop-blur-xl">
       <div className="p-6 border-b border-sol-border">
@@ -33,13 +46,25 @@ function Sidebar({ active }: { active: string }) {
           </a>
         ))}
       </nav>
-      <div className="p-4 border-t border-sol-border">
-        <div className="glass rounded-xl p-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-sol-gradient flex items-center justify-center text-xs font-bold text-black flex-shrink-0">A</div>
-          <div className="min-w-0">
-            <div className="text-sm font-medium truncate">Adebayo Olalere</div>
-            <div className="text-xs text-gray-500">Merchant</div>
+      <div className="p-4 border-t border-sol-border space-y-2">
+        {user?.api_key && (
+          <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10">
+            <div className="text-[10px] text-gray-500 mb-0.5 uppercase tracking-wider">API Key</div>
+            <div className="text-xs font-mono text-gray-400 truncate">{user.api_key.slice(0, 20)}…</div>
           </div>
+        )}
+        <div className="glass rounded-xl p-3 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-sol-gradient flex items-center justify-center text-xs font-bold text-black flex-shrink-0">
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium truncate">{user?.display_name ?? '...'}</div>
+            <div className="text-xs text-gray-500 truncate">{user?.email ?? ''}</div>
+          </div>
+          <button onClick={onLogout} title="Sign out"
+            className="text-gray-500 hover:text-red-400 transition-colors text-lg leading-none flex-shrink-0">
+            ⏻
+          </button>
         </div>
       </div>
     </aside>
@@ -60,8 +85,21 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 }
 
 // ── Create Link Modal ─────────────────────────────────────
-function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreated: (link: any) => void }) {
-  const [form, setForm] = useState({ merchant_wallet: '', amount_usdc: '', description: '', label: '' })
+function CreateLinkModal({
+  defaultWallet,
+  onClose,
+  onCreated,
+}: {
+  defaultWallet?: string
+  onClose: () => void
+  onCreated: (link: unknown) => void
+}) {
+  const [form, setForm] = useState({
+    merchant_wallet: defaultWallet || '',
+    amount_usdc: '',
+    description: '',
+    label: '',
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -79,8 +117,8 @@ function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreate
       })
       onCreated(link)
       onClose()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message || 'Failed to create link')
     } finally {
       setLoading(false)
     }
@@ -102,13 +140,14 @@ function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreate
               placeholder="YourSolanaWalletAddress..."
               className="w-full bg-black/30 border border-sol-border rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:border-[#9945FF]/60 transition-colors"
             />
+            {defaultWallet && (
+              <p className="text-xs text-[#14F195] mt-1">✓ Pre-filled from your profile</p>
+            )}
           </div>
           <div>
             <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1.5">Amount (USDC)</label>
             <input
-              type="number"
-              step="0.01"
-              min="0"
+              type="number" step="0.01" min="0"
               value={form.amount_usdc}
               onChange={e => setForm(f => ({ ...f, amount_usdc: e.target.value }))}
               placeholder="Leave empty for open amount"
@@ -134,7 +173,9 @@ function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreate
               className="w-full bg-black/30 border border-sol-border rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#9945FF]/60 transition-colors resize-none"
             />
           </div>
-          {error && <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2">{error}</div>}
+          {error && (
+            <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2">{error}</div>
+          )}
           <button type="submit" disabled={loading}
             className="w-full py-3 rounded-xl bg-sol-gradient text-black font-semibold text-sm hover:opacity-90 transition-opacity disabled:opacity-50">
             {loading ? 'Creating...' : 'Create Payment Link →'}
@@ -146,13 +187,18 @@ function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 // ── Success Modal (after link created) ───────────────────
-function LinkCreatedModal({ link, onClose }: { link: any; onClose: () => void }) {
+function LinkCreatedModal({ link, onClose }: { link: Record<string, unknown>; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
   function copy(text: string) {
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+  const paymentUrl = link.payment_url as string
+  const slug = link.slug as string
+  const amountUsdc = link.amount_usdc as number | undefined
+  const ngnEquivalent = link.ngn_equivalent as { ngn_amount: number } | undefined
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="w-full max-w-md glass rounded-2xl border border-[#14F195]/20 shadow-2xl animate-slide-up">
@@ -167,28 +213,26 @@ function LinkCreatedModal({ link, onClose }: { link: any; onClose: () => void })
             <div className="text-xs text-gray-500 mb-2">Payment URL</div>
             <div className="flex items-center gap-2">
               <div className="flex-1 bg-black/30 border border-sol-border rounded-xl px-3 py-2.5 text-xs font-mono text-gray-300 truncate">
-                {link.payment_url}
+                {paymentUrl}
               </div>
-              <button onClick={() => copy(link.payment_url)}
+              <button onClick={() => copy(paymentUrl)}
                 className="px-3 py-2.5 rounded-xl bg-[#9945FF]/20 border border-[#9945FF]/30 text-[#9945FF] text-xs font-medium hover:bg-[#9945FF]/30 transition-colors whitespace-nowrap">
                 {copied ? '✓ Copied' : 'Copy'}
               </button>
             </div>
           </div>
-
           <div className="flex items-center justify-center bg-white rounded-xl p-4">
-            <img src={getQRUrl(link.slug)} alt="QR Code" className="w-40 h-40" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={getQRUrl(slug)} alt="QR Code" className="w-40 h-40" />
           </div>
-
-          {link.amount_usdc && (
+          {amountUsdc && (
             <div className="glass rounded-xl p-4 text-center">
-              <div className="text-2xl font-black">{link.amount_usdc} USDC</div>
-              {link.ngn_equivalent && (
-                <div className="text-[#14F195] text-sm mt-1">≈ {formatNGN(link.ngn_equivalent.ngn_amount)}</div>
+              <div className="text-2xl font-black">{amountUsdc} USDC</div>
+              {ngnEquivalent && (
+                <div className="text-[#14F195] text-sm mt-1">≈ {formatNGN(ngnEquivalent.ngn_amount)}</div>
               )}
             </div>
           )}
-
           <button onClick={onClose}
             className="w-full py-3 rounded-xl glass border border-sol-border text-sm font-medium hover:border-[#9945FF]/40 transition-colors">
             Done
@@ -201,35 +245,98 @@ function LinkCreatedModal({ link, onClose }: { link: any; onClose: () => void })
 
 // ── Main Dashboard ─────────────────────────────────────────
 export default function Dashboard() {
+  const router = useRouter()
+  const [user, setUser] = useState<SolankaUser | null>(null)
   const [showCreate, setShowCreate] = useState(false)
-  const [createdLink, setCreatedLink] = useState<any>(null)
-  const [transactions, setTransactions] = useState<any[]>([])
+  const [createdLink, setCreatedLink] = useState<Record<string, unknown> | null>(null)
+  const [transactions, setTransactions] = useState<Record<string, unknown>[]>([])
   const [ngnRate, setNgnRate] = useState<number | null>(null)
-  const [links, setLinks] = useState<any[]>([])
+  const [links, setLinks] = useState<Record<string, unknown>[]>([])
+  const [authChecked, setAuthChecked] = useState(false)
 
-  useEffect(() => {
-    getNGNRate().then(d => setNgnRate(d.rate)).catch(() => {})
-    getTransactions().then(d => setTransactions(d.transactions || [])).catch(() => {})
+  const loadData = useCallback(async () => {
+    try {
+      const [txData, linkData, rateData] = await Promise.allSettled([
+        getTransactions(),
+        getMyLinks(),
+        getNGNRate(),
+      ])
+      if (txData.status === 'fulfilled') setTransactions(txData.value.transactions || [])
+      if (linkData.status === 'fulfilled') setLinks(linkData.value.links || [])
+      if (rateData.status === 'fulfilled') setNgnRate(rateData.value.rate)
+    } catch {}
   }, [])
 
-  function onLinkCreated(link: any) {
-    setCreatedLink(link)
-    setLinks(prev => [link, ...prev])
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('solanka_token') : null
+    if (!token) {
+      router.replace('/auth/login')
+      return
+    }
+
+    // Load user from cache first for instant render
+    const cached = typeof window !== 'undefined' ? localStorage.getItem('solanka_user') : null
+    if (cached) {
+      try { setUser(JSON.parse(cached)) } catch {}
+    }
+
+    // Then verify with server
+    getMe()
+      .then(u => {
+        setUser(u)
+        localStorage.setItem('solanka_user', JSON.stringify(u))
+      })
+      .catch(() => {
+        // Token invalid — clear and redirect
+        logout()
+        router.replace('/auth/login')
+      })
+      .finally(() => setAuthChecked(true))
+
+    loadData()
+  }, [router, loadData])
+
+  function handleLogout() {
+    logout()
+    router.push('/auth/login')
   }
 
-  const totalUSDC = transactions.reduce((s, t) => s + (t.amount_usdc || 0), 0)
+  function onLinkCreated(link: unknown) {
+    setCreatedLink(link as Record<string, unknown>)
+    setLinks(prev => [link as Record<string, unknown>, ...prev])
+  }
+
+  const totalUSDC = transactions.reduce((s, t) => s + ((t.amount_usdc as number) || 0), 0)
+
+  // Show nothing while checking auth (avoids flash of unauthenticated content)
+  if (!authChecked && !user) {
+    return (
+      <div className="min-h-screen bg-sol-dark flex items-center justify-center">
+        <div className="flex items-center gap-3 text-gray-400">
+          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          Loading…
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex bg-sol-dark">
-      <Sidebar active="overview" />
+      <Sidebar user={user} onLogout={handleLogout} />
 
       <main className="flex-1 overflow-auto">
         {/* Header */}
         <div className="border-b border-sol-border px-8 py-5 flex items-center justify-between sticky top-0 bg-sol-dark/80 backdrop-blur-xl z-10">
           <div>
-            <h1 className="text-xl font-bold">Dashboard</h1>
+            <h1 className="text-xl font-bold">
+              {user ? `Welcome, ${user.display_name.split(' ')[0]}` : 'Dashboard'}
+            </h1>
             <p className="text-gray-500 text-sm mt-0.5">
               {ngnRate ? `1 USDC = ₦${ngnRate.toLocaleString()}` : 'Loading rates...'}
+              {user?.solana_wallet ? ` · ${shortenAddress(user.solana_wallet)}` : ''}
             </p>
           </div>
           <button onClick={() => setShowCreate(true)}
@@ -245,13 +352,13 @@ export default function Dashboard() {
               sub={ngnRate ? `≈ ${formatNGN(totalUSDC * ngnRate)}` : '—'} color="#9945FF" />
             <StatCard label="Transactions" value={String(transactions.length)}
               sub="All time" color="#14F195" />
-            <StatCard label="Active Links" value={String(links.length)}
-              sub="Created this session" color="#9945FF" />
+            <StatCard label="Payment Links" value={String(links.length)}
+              sub="Active links" color="#9945FF" />
             <StatCard label="NGN Rate" value={ngnRate ? `₦${ngnRate.toLocaleString()}` : '...'}
               sub="per USDC · Live Binance" color="#14F195" />
           </div>
 
-          {/* Recent links created this session */}
+          {/* Payment Links */}
           {links.length > 0 && (
             <div>
               <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Payment Links</h2>
@@ -262,23 +369,28 @@ export default function Dashboard() {
                       🔗
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium">{link.label}</div>
-                      <div className="text-xs text-gray-500 font-mono truncate">{link.slug}</div>
+                      <div className="text-sm font-medium">{link.label as string}</div>
+                      <div className="text-xs text-gray-500 font-mono truncate">{link.slug as string}</div>
+                      {link.times_used ? (
+                        <div className="text-xs text-gray-600 mt-0.5">Used {link.times_used as number}×</div>
+                      ) : null}
                     </div>
                     {link.amount_usdc && (
                       <div className="text-right flex-shrink-0">
-                        <div className="text-sm font-bold">{link.amount_usdc} USDC</div>
-                        {link.ngn_equivalent && (
-                          <div className="text-xs text-[#14F195]">≈ {formatNGN(link.ngn_equivalent.ngn_amount)}</div>
+                        <div className="text-sm font-bold">{link.amount_usdc as number} USDC</div>
+                        {(link.ngn_equivalent as { ngn_amount: number } | undefined) && (
+                          <div className="text-xs text-[#14F195]">
+                            ≈ {formatNGN((link.ngn_equivalent as { ngn_amount: number }).ngn_amount)}
+                          </div>
                         )}
                       </div>
                     )}
                     <div className="flex gap-2 flex-shrink-0">
-                      <a href={link.payment_url} target="_blank"
+                      <a href={link.payment_url as string} target="_blank"
                         className="px-3 py-1.5 rounded-lg bg-[#9945FF]/10 border border-[#9945FF]/20 text-[#9945FF] text-xs font-medium hover:bg-[#9945FF]/20 transition-colors">
                         Open
                       </a>
-                      <button onClick={() => { setCreatedLink(link) }}
+                      <button onClick={() => setCreatedLink(link)}
                         className="px-3 py-1.5 rounded-lg glass border border-sol-border text-xs font-medium hover:border-[#9945FF]/30 transition-colors">
                         QR
                       </button>
@@ -317,7 +429,7 @@ export default function Dashboard() {
                       <tr key={i} className="border-b border-sol-border/50 last:border-0 hover:bg-white/[0.02] transition-colors">
                         <td className="px-5 py-4">
                           <span className="text-xs font-mono text-gray-400">
-                            {tx.signature ? `${tx.signature.slice(0, 8)}...` : '—'}
+                            {tx.signature ? `${(tx.signature as string).slice(0, 8)}...` : '—'}
                           </span>
                         </td>
                         <td className="px-5 py-4">
@@ -325,7 +437,11 @@ export default function Dashboard() {
                         </td>
                         <td className="px-5 py-4">
                           <span className="text-sm text-[#14F195]">
-                            {tx.amount_ngn ? formatNGN(tx.amount_ngn) : ngnRate && tx.amount_usdc ? formatNGN(tx.amount_usdc * ngnRate) : '—'}
+                            {tx.amount_ngn
+                              ? formatNGN(tx.amount_ngn as number)
+                              : ngnRate && tx.amount_usdc
+                              ? formatNGN((tx.amount_usdc as number) * ngnRate)
+                              : '—'}
                           </span>
                         </td>
                         <td className="px-5 py-4">
@@ -336,12 +452,12 @@ export default function Dashboard() {
                               ? 'bg-red-500/10 text-red-400 border border-red-500/20'
                               : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
                           }`}>
-                            {tx.status}
+                            {tx.status as string}
                           </span>
                         </td>
                         <td className="px-5 py-4">
                           <span className="text-xs text-gray-500">
-                            {tx.created_at ? new Date(tx.created_at).toLocaleDateString('en-NG') : '—'}
+                            {tx.created_at ? new Date(tx.created_at as string).toLocaleDateString('en-NG') : '—'}
                           </span>
                         </td>
                       </tr>
@@ -370,7 +486,11 @@ export default function Dashboard() {
       </main>
 
       {showCreate && (
-        <CreateLinkModal onClose={() => setShowCreate(false)} onCreated={onLinkCreated} />
+        <CreateLinkModal
+          defaultWallet={user?.solana_wallet ?? undefined}
+          onClose={() => setShowCreate(false)}
+          onCreated={onLinkCreated}
+        />
       )}
       {createdLink && (
         <LinkCreatedModal link={createdLink} onClose={() => setCreatedLink(null)} />

@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 
 from db.database import init_db
+from api.auth import router as auth_router
 from api.payments import router as payments_router
 from api.wallet import router as wallet_router
 from api.rates import router as rates_router
@@ -42,6 +43,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Register routers
+app.include_router(auth_router,     prefix="/api/v1")
 app.include_router(payments_router, prefix="/api/v1")
 app.include_router(wallet_router,   prefix="/api/v1")
 app.include_router(rates_router,    prefix="/api/v1")

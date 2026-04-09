@@ -5,9 +5,12 @@ import Link from 'next/link'
 // ── Navbar ────────────────────────────────────────────────
 function Navbar() {
   const [scrolled, setScrolled] = useState(false)
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 20)
     window.addEventListener('scroll', fn)
+    setIsLoggedIn(!!localStorage.getItem('solanka_token'))
     return () => window.removeEventListener('scroll', fn)
   }, [])
 
@@ -29,14 +32,23 @@ function Navbar() {
              className="hover:text-white transition-colors">API Docs</a>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/dashboard"
-            className="hidden md:block text-sm text-gray-300 hover:text-white transition-colors">
-            Dashboard
-          </Link>
-          <Link href="/dashboard"
-            className="text-sm px-4 py-2 rounded-xl bg-sol-gradient text-black font-semibold hover:opacity-90 transition-opacity">
-            Get Started
-          </Link>
+          {isLoggedIn ? (
+            <Link href="/dashboard"
+              className="text-sm px-4 py-2 rounded-xl bg-sol-gradient text-black font-semibold hover:opacity-90 transition-opacity">
+              Dashboard →
+            </Link>
+          ) : (
+            <>
+              <Link href="/auth/login"
+                className="hidden md:block text-sm text-gray-300 hover:text-white transition-colors">
+                Sign in
+              </Link>
+              <Link href="/auth/register"
+                className="text-sm px-4 py-2 rounded-xl bg-sol-gradient text-black font-semibold hover:opacity-90 transition-opacity">
+                Get Started
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </nav>
@@ -70,7 +82,7 @@ function Hero() {
           </p>
 
           <div className="flex flex-wrap gap-4 mb-12">
-            <Link href="/dashboard"
+            <Link href="/auth/register"
               className="px-6 py-3.5 rounded-xl bg-sol-gradient text-black font-semibold text-sm hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98]">
               Create Payment Link →
             </Link>
@@ -493,7 +505,7 @@ function CTABanner() {
               Solanka carries that legacy forward — building next-generation African financial infrastructure on the fastest blockchain in the world.
             </p>
             <div className="flex flex-wrap gap-4 justify-center">
-              <Link href="/dashboard"
+              <Link href="/auth/register"
                 className="px-7 py-3.5 rounded-xl bg-black text-white font-semibold text-sm hover:bg-gray-900 transition-colors">
                 Start building →
               </Link>

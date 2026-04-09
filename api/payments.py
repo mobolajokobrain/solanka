@@ -10,8 +10,10 @@ from typing import Optional
 from db.database import get_db
 from models.payment_link import PaymentLink
 from models.transaction import Transaction, TransactionStatus
+from models.user import User
 from core.conversion import convert_usdc_to_ngn
 from core.solana import verify_transaction, USDC_MINT_ADDRESS
+from core.auth import get_current_user, get_current_user_optional
 from utils.helpers import generate_payment_slug, generate_id
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
@@ -37,16 +39,26 @@ class VerifyTransactionRequest(BaseModel):
 @router.post("/link")
 async def create_payment_link(
     body: CreatePaymentLinkRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
-    """Create a new Solanka payment link."""
+    """Create a new Solanka payment link. Auth optional — links are tied to user when logged in."""
     slug = generate_payment_slug()
     link_id = generate_id()
+
+    # If authenticated and no wallet provided, fall back to user's saved wallet
+    merchant_wallet = body.merchant_wallet
+    if not merchant_wallet and current_user and current_user.solana_wallet:
+        merchant_wallet = current_user.solana_wallet
+    if not merchant_wallet:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="merchant_wallet is required")
 
     link = PaymentLink(
         id=link_id,
         slug=slug,
-        merchant_wallet=body.merchant_wallet,
+        user_id=current_user.id if current_user else None,
+        merchant_wallet=merchant_wallet,
         amount_usdc=body.amount_usdc,
         description=body.description,
         label=body.label or "Solanka Payment"
@@ -196,15 +208,60 @@ async def verify_payment(
     }
 
 
+@router.get("/links")
+async def list_my_links(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all payment links created by the authenticated user."""
+    result = await db.execute(
+        select(PaymentLink)
+        .where(PaymentLink.user_id == current_user.id)
+        .order_by(PaymentLink.created_at.desc())
+    )
+    links = result.scalars().all()
+    base_url = os.getenv("APP_BASE_URL", "https://solanka-production.up.railway.app")
+    return {
+        "count": len(links),
+        "links": [
+            {
+                "id": lnk.id,
+                "slug": lnk.slug,
+                "payment_url": f"{base_url}/pay/{lnk.slug}",
+                "qr_url": f"{base_url}/api/v1/payments/link/{lnk.slug}/qr",
+                "merchant_wallet": lnk.merchant_wallet,
+                "amount_usdc": lnk.amount_usdc,
+                "description": lnk.description,
+                "label": lnk.label,
+                "is_active": lnk.is_active,
+                "times_used": lnk.times_used,
+                "created_at": lnk.created_at,
+            }
+            for lnk in links
+        ],
+    }
+
+
 @router.get("/transactions")
 async def list_transactions(
     wallet: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
-    """List all recorded transactions, optionally filtered by wallet."""
+    """List recorded transactions. Authenticated users see only their own."""
     query = select(Transaction).order_by(Transaction.created_at.desc())
-    if wallet:
+
+    if current_user:
+        # Join to payment links owned by this user
+        query = (
+            select(Transaction)
+            .join(PaymentLink, Transaction.payment_link_id == PaymentLink.id)
+            .where(PaymentLink.user_id == current_user.id)
+            .order_by(Transaction.created_at.desc())
+        )
+    elif wallet:
         query = query.where(Transaction.receiver_wallet == wallet)
+
     result = await db.execute(query)
     txs = result.scalars().all()
     return {

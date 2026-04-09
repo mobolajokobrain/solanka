@@ -22,6 +22,7 @@ async def get_db():
 
 async def init_db():
     async with engine.begin() as conn:
-        from models.transaction import Transaction
-        from models.payment_link import PaymentLink
+        from models.user import User  # noqa: F401
+        from models.payment_link import PaymentLink  # noqa: F401
+        from models.transaction import Transaction  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
