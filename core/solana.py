@@ -72,7 +72,6 @@ async def get_usdc_balance(wallet_address: str) -> dict:
                 "has_token_account": False
             }
 
-        # Sum across all USDC accounts (normally just one)
         total = sum(
             float(a["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"] or 0)
             for a in accounts
@@ -128,7 +127,6 @@ async def verify_transaction(
     if tx.get("meta", {}).get("err") is not None:
         return {"verified": False, "reason": "Transaction failed on-chain"}
 
-    # Build index maps for pre/post token balances
     pre_map = {
         b["accountIndex"]: float(b.get("uiTokenAmount", {}).get("uiAmount") or 0)
         for b in tx.get("meta", {}).get("preTokenBalances", [])

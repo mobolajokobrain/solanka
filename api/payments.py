@@ -119,7 +119,6 @@ async def get_solana_pay_url(slug: str, db: AsyncSession = Depends(get_db)):
 async def get_payment_qr(slug: str, db: AsyncSession = Depends(get_db)):
     """Generate and return a Solana Pay QR code PNG for this payment link."""
     import qrcode
-    from qrcode.image.pil import PilImage
 
     link = await _get_link_by_slug(slug, db)
     solana_pay_url = _build_solana_pay_url(link)
